@@ -29,8 +29,33 @@ const API_KEY = 'your-api-key';
  * }
  */
 function doPost(e) {
+  const startedAt = Date.now();
+  const executionId = Utilities.getUuid();
+  const executionSummary = {
+    executionId: executionId,
+    action: 'sendEmail',
+    subject: '',
+    toList: [],
+    ccList: [],
+    bccList: [],
+    contentPreview: '',
+    toCount: 0,
+    ccCount: 0,
+    bccCount: 0,
+    attachmentCount: 0,
+    inlineImageCount: 0
+  };
+
   try {
+    console.log(JSON.stringify({
+      executionId: executionId,
+      action: 'sendEmail',
+      stage: 'started',
+      at: new Date(startedAt).toISOString()
+    }));
+
     if (!e || !e.postData || !e.postData.contents) {
+      logExecutionResult_(executionSummary, startedAt, false, 'empty request body');
       return jsonResponse_({
         ok: false,
         error: 'empty request body'
@@ -41,6 +66,7 @@ function doPost(e) {
 
     const apiKey = String(data.apiKey || '').trim();
     if (apiKey !== API_KEY) {
+      logExecutionResult_(executionSummary, startedAt, false, 'unauthorized');
       return jsonResponse_({
         ok: false,
         error: 'unauthorized'
@@ -56,6 +82,7 @@ function doPost(e) {
     const bcc = normalizeEmailList_(data.bcc);
 
     if (!subject) {
+      logExecutionResult_(executionSummary, startedAt, false, 'subject is required');
       return jsonResponse_({
         ok: false,
         error: 'subject is required'
@@ -63,6 +90,7 @@ function doPost(e) {
     }
 
     if (!body && !htmlBody) {
+      logExecutionResult_(executionSummary, startedAt, false, 'body or htmlBody is required');
       return jsonResponse_({
         ok: false,
         error: 'body or htmlBody is required'
@@ -70,6 +98,7 @@ function doPost(e) {
     }
 
     if (to.length === 0) {
+      logExecutionResult_(executionSummary, startedAt, false, 'to is required');
       return jsonResponse_({
         ok: false,
         error: 'to is required'
@@ -82,6 +111,17 @@ function doPost(e) {
 
     const attachments = buildAttachments_(data.attachments);
     const inlineImages = buildInlineImages_(data.inlineImages);
+
+    executionSummary.subject = subject;
+    executionSummary.toList = to;
+    executionSummary.ccList = cc;
+    executionSummary.bccList = bcc;
+    executionSummary.contentPreview = buildContentPreview_(body, htmlBody);
+    executionSummary.toCount = to.length;
+    executionSummary.ccCount = cc.length;
+    executionSummary.bccCount = bcc.length;
+    executionSummary.attachmentCount = attachments.length;
+    executionSummary.inlineImageCount = Object.keys(inlineImages).length;
 
     const mailOptions = {
       to: to.join(','),
@@ -111,16 +151,7 @@ function doPost(e) {
 
     MailApp.sendEmail(mailOptions);
 
-    console.log(JSON.stringify({
-      action: 'sendEmail',
-      subject: subject,
-      toCount: to.length,
-      ccCount: cc.length,
-      bccCount: bcc.length,
-      attachmentCount: attachments.length,
-      inlineImageCount: Object.keys(inlineImages).length,
-      at: new Date().toISOString()
-    }));
+    logExecutionResult_(executionSummary, startedAt, true);
 
     return jsonResponse_({
       ok: true,
@@ -132,12 +163,46 @@ function doPost(e) {
       inlineImageCount: Object.keys(inlineImages).length
     });
   } catch (err) {
-    console.error(String(err));
+    console.error(JSON.stringify({
+      executionId: executionId,
+      action: 'sendEmail',
+      stage: 'exception',
+      error: String(err),
+      at: new Date().toISOString()
+    }));
+
+    logExecutionResult_(executionSummary, startedAt, false, String(err));
     return jsonResponse_({
       ok: false,
       error: String(err)
     });
   }
+}
+
+function logExecutionResult_(summary, startedAt, ok, errorMessage) {
+  console.log(JSON.stringify({
+    executionId: summary.executionId,
+    action: summary.action,
+    result: ok ? 'success' : 'failed',
+    durationMs: Date.now() - startedAt,
+    subject: summary.subject,
+    toList: summary.toList,
+    ccList: summary.ccList,
+    bccList: summary.bccList,
+    contentPreview: summary.contentPreview,
+    toCount: summary.toCount,
+    ccCount: summary.ccCount,
+    bccCount: summary.bccCount,
+    attachmentCount: summary.attachmentCount,
+    inlineImageCount: summary.inlineImageCount,
+    error: errorMessage || null,
+    at: new Date().toISOString()
+  }));
+}
+
+function buildContentPreview_(body, htmlBody) {
+  const rawContent = body ? String(body) : stripHtml_(htmlBody);
+  return rawContent.substring(0, 120);
 }
 
 function normalizeEmailList_(input) {
