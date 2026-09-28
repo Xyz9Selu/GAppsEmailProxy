@@ -259,4 +259,4 @@ It is a thin Apps Script-based email gateway designed for simple automation, int
 
 ## Licence
 
-GNU
+MIT License — see [LICENSE](LICENSE).
